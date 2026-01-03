@@ -63,35 +63,44 @@ int main() {
     for(int i=0; i<msg_len; i++) printf("%02x", ciphertext[i]);
     printf("\n");
 
-    // BOB: RECEIVER
-    printf("\n--- Transmitting (R, Ciphertext) to Bob ---\n");
+    // ... (Bagian Alice dan Enkripsi tetap sama untuk setup awal) ...
 
-    // 1. Bob receives R. Derives S.
+    printf("\n--- Start Profiling: Bob Decrypting 10,000 times ---\n");
+
+    // Persiapkan variabel di luar loop agar tidak alokasi ulang memori berlebih
     ec_point_t S_bob;
-    ec_mul(&S_bob, &bob_priv, &R);
-
-    // 2. Derive AES Key
-    uint8_t shared_bytes_bob[32];
-    for(int i=0; i<4; i++) {
-        uint64_t limb = S_bob.x.limbs[3-i];
-        for(int j=0; j<8; j++) shared_bytes_bob[i*8 + j] = (limb >> (56 - j*8)) & 0xFF;
-    }
-    uint8_t aes_key_bob[32];
-    sha256_init(&sha);
-    sha256_update(&sha, shared_bytes_bob, 32);
-    sha256_final(&sha, aes_key_bob);
-
-    // 3. Decrypt
-    // AES-CTR decryption is identical to encryption (XOR again)
     aes_ctx_t aes_bob;
-    aes_init(&aes_bob, aes_key_bob);
-    
+    uint8_t aes_key_bob[32];
     uint8_t decrypted[100];
-    memcpy(decrypted, ciphertext, msg_len);
-    decrypted[msg_len] = '\0'; // Null terminate for printing
+    sha256_ctx_t sha_bob; // Ganti nama agar tidak konflik
 
-    aes_ctr_encrypt(&aes_bob, nonce, decrypted, msg_len);
+    // LOOP UNTUK PROFILING
+    for (int iter = 0; iter < 10000; iter++) {
+        // 1. Bob receives R. Derives S. (INI YANG BERAT)
+        ec_mul(&S_bob, &bob_priv, &R); //
 
+        // 2. Derive AES Key
+        uint8_t shared_bytes_bob[32];
+        for(int i=0; i<4; i++) {
+            uint64_t limb = S_bob.x.limbs[3-i];
+            for(int j=0; j<8; j++) shared_bytes_bob[i*8 + j] = (limb >> (56 - j*8)) & 0xFF;
+        }
+        
+        sha256_init(&sha_bob);
+        sha256_update(&sha_bob, shared_bytes_bob, 32);
+        sha256_final(&sha_bob, aes_key_bob);
+
+        // 3. Decrypt
+        aes_init(&aes_bob, aes_key_bob);
+        memcpy(decrypted, ciphertext, msg_len); // Reset ciphertext tiap iterasi
+        
+        // AES Decryption
+        aes_ctr_encrypt(&aes_bob, nonce, decrypted, msg_len);
+    }
+
+    printf("--- Profiling Done ---\n");
+    // ... (Sisa kode)
+    
     printf("[Bob] Decrypted Message: \"%s\"\n", decrypted);
 
     return 0;
